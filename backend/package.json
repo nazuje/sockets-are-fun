@@ -2,11 +2,11 @@
   "name": "socket-io",
   "version": "1.0.0",
   "description": "",
-  "main": "src/websocket.js",
+  "main": "src/server.js",
   "scripts": {
     "build": "npx tsc",
-    "start": "node dist/websocket.js",
-    "dev": "concurrently \"npx tsc --watch\" \"nodemon -q dist/websocket.js\"",
+    "start": "node dist/server.js",
+    "dev": "concurrently \"npx tsc --watch\" \"nodemon -q dist/server.js\"",
     "lint": "eslint . --fix",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

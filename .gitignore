@@ -1,0 +1,8 @@
+node_modules
+backend/node_modules
+backend/dist
+dist
+build
+frontend/games/node_modules
+frontend/games/dist
+frontend/games/build
