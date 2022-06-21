@@ -1,8 +1,20 @@
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
+import { createAdapter } from "@socket.io/redis-adapter";
+import { addMessageToCache, getMessagesFromCache, redisClient } from "./redis";
+import { config } from "./config";
+import {
+  ClientToServerEvents,
+  InterServerEvents,
+  ServerToClientEvents,
+  SocketData,
+} from "./socketio-types";
+
+const { port } = config.server;
 
 // Code	Message
+
 // 0	"Transport unknown"
 // 1	"Session ID unknown"
 // 2	"Bad handshake method"
@@ -12,15 +24,36 @@ import { Server } from "socket.io";
 
 const app = express();
 const httpServer = createServer(app);
-const io = new Server(httpServer, {
-  /* options */
+const io = new Server<
+  ClientToServerEvents,
+  ServerToClientEvents,
+  InterServerEvents,
+  SocketData
+>(httpServer, {
   cors: {
-    origin: "http://localhost:3000",
+    origin: "*",
   },
 });
 
+const subClient = redisClient.duplicate();
+
+Promise.all([redisClient.connect(), subClient.connect()]).then(() => {
+  io.adapter(createAdapter(redisClient, subClient));
+  // io.listen(port);
+});
+
+// [END cloudrun_websockets_redis_adapter]
+// Add error handlers
+redisClient.on("error", (err) => {
+  console.error(err.message);
+});
+
+subClient.on("error", (err) => {
+  console.error(err.message);
+});
+
 app.get("/", (req, res) => {
-  res.send("<h1>Hello world</h1>");
+  res.send({ status: "up" });
 });
 
 io.on("connection", (socket) => {
@@ -33,14 +66,19 @@ io.on("connection", (socket) => {
   socket.on("disconnecting", (reason) => {
     for (const room of socket.rooms) {
       if (room !== socket.id) {
-        socket.to(room).emit("user has left", socket.id);
+        // socket.to(room).emit("user has left", socket.id);
       }
     }
   });
 
-  socket.on("chat-msg", (msg) => {
+  socket.emit("basicEmit", 1, "2", Buffer.from([3]));
+
+  socket.on("userSentMessage", async (msg) => {
     console.log("CHAT MSG EVENT", msg);
-    io.emit("chat-msg", msg);
+    io.emit("newMessageAdded", msg);
+    await addMessageToCache(msg.message);
+    const messages = await getMessagesFromCache();
+    console.log("Messages from redis after added new:", messages);
   });
 
   // MIDDLEWARES:
@@ -66,12 +104,12 @@ io.on("connection", (socket) => {
 });
 
 io.engine.on("initial_headers", (headers: any, req: any) => {
-  headers["test"] = "123";
-  headers["set-cookie"] = "mycookie=456";
+  // headers["test"] = "123";
+  // headers["set-cookie"] = "mycookie=456";
 });
 
 io.engine.on("headers", (headers: any, req: any) => {
-  headers["test"] = "789";
+  // headers["test"] = "789";
 });
 
 io.engine.on("connection_error", (err: any) => {
@@ -81,4 +119,6 @@ io.engine.on("connection_error", (err: any) => {
   console.log(err.context); // some additional error context
 });
 
-httpServer.listen(3001);
+httpServer.listen(port, () => {
+  console.log(`Listening on ${port}`);
+});
