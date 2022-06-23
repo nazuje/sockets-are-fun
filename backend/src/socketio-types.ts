@@ -17,7 +17,7 @@ export interface ServerToClientEvents {
 
 export interface ClientToServerEvents {
   joinRoom: (room: Room) => void;
-  leaveRoom: () => void;
+  leaveRoom: (room: Room) => void;
 
   joinGame: () => void;
   leaveGame: () => void;

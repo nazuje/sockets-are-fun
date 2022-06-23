@@ -53,12 +53,24 @@ async function addOrUpdateUserInRedis(user: User) {
 
 async function getAllGamesFromRedis() {
   try {
+    const len = await redisClient.hLen("games");
+    if (!len) return [];
+
     const r = await redisClient.hGetAll("games");
-    console.log("All games from redis:", r);
-    return r;
+
+    // Think if below makes sense or if this will get very slow for a huge amount of games
+    const games = Object.keys(r).map((key) => {
+      const parsedGame = JSON.parse(r[key]);
+      return {
+        ...parsedGame,
+      };
+    });
+
+    console.log("All games from redis:", games);
+    return games;
   } catch (err) {
     console.log(err);
-    return null;
+    return [];
   }
 }
 

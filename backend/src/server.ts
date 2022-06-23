@@ -57,7 +57,7 @@ Promise.all([redisClient.connect(), subClient.connect()])
   .then(() => {
     io.adapter(createAdapter(redisClient, subClient));
     // io.listen(port);
-    console.log("HERE --");
+
     getGameFromRedis("random-id").then((r) => console.log("GAME:", r));
   })
   .catch((err) => {
