@@ -1,21 +1,30 @@
-import { GameEnd, GameStart, Message, NewGame } from "./game-types";
+import { Game, Message } from "./game-types";
 
 export interface ServerToClientEvents {
   noArg: () => void;
   basicEmit: (a: number, b: string, c: Buffer) => void;
   withAck: (d: string, callback: (e: number) => void) => void;
-  gameStarted: (data: GameStart) => void;
-  gameEnded: (data: GameEnd) => void;
-  newGameAdded: (data: NewGame) => void;
+
+  gameStarted: (data: Game) => void;
+  gameEnded: (data: Game) => void;
+  gameCreated: (data: Game) => void;
+  gameUpdate: (data: Game) => void;
+
+  allActiveGames: (data: any) => void;
+
   newMessageAdded: (data: Message) => void;
 }
 
 export interface ClientToServerEvents {
-  userJoinedLobby: () => void;
-  userLeftLobby: () => void;
-  userJoinedGame: () => void;
-  userLeftGame: () => void;
+  joinRoom: (room: Room) => void;
+  leaveRoom: () => void;
+
+  joinGame: () => void;
+  leaveGame: () => void;
+
   userStartedGame: () => void;
+  createGame: (game: Game) => void;
+
   userSentMessage: (data: Message) => void;
 }
 
@@ -27,3 +36,5 @@ export interface SocketData {
   name: string;
   age: number;
 }
+
+export type Room = "game-lobby" | "notifications";

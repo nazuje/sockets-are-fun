@@ -2,14 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import "./App.css";
 import { Lobby } from "./Lobby";
-import { ClientToServerEvents, ServerToClientEvents } from "./socketio-types";
+import {
+  ClientToServerEvents,
+  Game,
+  ServerToClientEvents,
+} from "./socketio-types";
 
 const runUrl = "ws-testp-5swmx4bxtq-ue.a.run.app";
 const localUrl = "localhost:8080";
 
 function App() {
-  const [messages, setMessages] = useState<string[]>([]);
-  const [message, setMessage] = useState("");
+  const [games, setGames] = useState<Game[]>([]);
+  const [newGame, setNewgame] = useState<Game | null>(null);
   const socketRef = useRef<Socket<
     ServerToClientEvents,
     ClientToServerEvents
@@ -18,7 +22,7 @@ function App() {
   useEffect(() => {
     console.log("Will try to connect to socket");
     const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(
-      `ws://${runUrl}`,
+      `ws://${localUrl}`,
       {
         reconnectionDelayMax: 10000,
         auth: {
@@ -42,27 +46,28 @@ function App() {
     socket.on("basicEmit", (a, b, c) => {
       console.log("Received basic emit", a, b, c);
     });
-    socket.on("newMessageAdded", (data) => {
-      console.log("CHAT MSG EVENT received", data);
-      setMessages((curr) => {
-        return [...curr, data.message];
+    socket.on("gameCreated", (data) => {
+      console.log("gameCreated event received", data);
+      setGames((curr) => {
+        return [...curr, data];
       });
     });
-    console.log("SOCKET INITIATED:", socket);
+
+    socket.on("allActiveGames", (data) => {
+      console.log("Recevied all active games:", data);
+    });
+    console.log("socket initiated:", socket);
 
     return () => {
       socket.disconnect();
     };
   }, []);
 
-  function emit(msg: string) {
+  function emitCreateGame(msg: Game) {
+    if (!newGame) return;
     if (socketRef.current && socketRef.current.connected) {
       console.log("will send", msg);
-      socketRef.current.emit("userSentMessage", {
-        id: socketRef.current.id,
-        message: msg,
-        timestamp: Date.now(),
-      });
+      socketRef.current.emit("createGame", newGame);
     }
   }
 
@@ -72,20 +77,26 @@ function App() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          emit(message);
-          setMessage("");
+          if (!newGame) return;
+          emitCreateGame(newGame);
+          setNewgame(null);
         }}
       >
         <input
-          value={message}
+          value={newGame?.id}
           placeholder="insert message"
-          onChange={(e) => setMessage(e.target.value)}
+          onChange={(e) =>
+            setNewgame((curr) => {
+              if (!curr) return { id: e.target.value };
+              return { ...curr, id: e.target.value };
+            })
+          }
         />
       </form>
-      <span>MESSAGES:</span>
+      <span>GAMES:</span>
       <div style={{ display: "flex", flexDirection: "column" }}>
-        {messages.map((m) => (
-          <span key={m}>{m}</span>
+        {games.map((m) => (
+          <button key={m.id}>NEW GAME: {m.id}</button>
         ))}
       </div>
     </div>

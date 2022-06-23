@@ -1,16 +1,25 @@
-export type GameStart = {
+export type User = {
   id: string;
-  status: string;
+  tokenId: string;
 };
 
-export type GameEnd = {
+export type Round = {
   id: string;
-  status: string;
 };
 
-export type NewGame = {
+export type GameStatus = "CREATED" | "IN_PROGRESS" | "COMPLETED";
+export type GameType = "BOX";
+
+export type Game = {
   id: string;
-  status: string;
+  players?: User[];
+  rounds?: Round[];
+  activeRound?: Round;
+  boxes?: string[];
+  status?: GameStatus;
+  numOfPlayers?: number;
+  isPrivate?: boolean;
+  type?: GameType;
 };
 
 export type Message = {

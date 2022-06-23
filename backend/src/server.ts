@@ -1,8 +1,14 @@
+/* eslint-disable @typescript-eslint/no-empty-function */
 import express from "express";
 import { createServer } from "http";
-import { Server } from "socket.io";
+import { Server, Socket } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
-import { addMessageToCache, getMessagesFromCache, redisClient } from "./redis";
+import {
+  addOrUpdateGameInRedis,
+  getAllGamesFromRedis,
+  getGameFromRedis,
+  redisClient,
+} from "./redis";
 import { config } from "./config";
 import {
   ClientToServerEvents,
@@ -11,16 +17,22 @@ import {
   SocketData,
 } from "./socketio-types";
 
-const { port } = config.server;
-
 // Code	Message
-
 // 0	"Transport unknown"
 // 1	"Session ID unknown"
 // 2	"Bad handshake method"
 // 3	"Bad request"
 // 4	"Forbidden"
 // 5	"Unsupported protocol version"
+
+const { port } = config.server;
+
+type TypedSocket = Socket<
+  ClientToServerEvents,
+  ServerToClientEvents,
+  InterServerEvents,
+  SocketData
+>;
 
 const app = express();
 const httpServer = createServer(app);
@@ -30,20 +42,29 @@ const io = new Server<
   InterServerEvents,
   SocketData
 >(httpServer, {
+  pingInterval: 2500,
+  pingTimeout: 20000,
+  upgradeTimeout: 10000,
   cors: {
     origin: "*",
   },
 });
 
+// create duplicate of redis client to use as sub
 const subClient = redisClient.duplicate();
 
-Promise.all([redisClient.connect(), subClient.connect()]).then(() => {
-  io.adapter(createAdapter(redisClient, subClient));
-  // io.listen(port);
-});
+Promise.all([redisClient.connect(), subClient.connect()])
+  .then(() => {
+    io.adapter(createAdapter(redisClient, subClient));
+    // io.listen(port);
+    console.log("HERE --");
+    getGameFromRedis("random-id").then((r) => console.log("GAME:", r));
+  })
+  .catch((err) => {
+    console.log("Err when connecting redis clients", err);
+    //TO-DO: Handle connection errors
+  });
 
-// [END cloudrun_websockets_redis_adapter]
-// Add error handlers
 redisClient.on("error", (err) => {
   console.error(err.message);
 });
@@ -52,17 +73,14 @@ subClient.on("error", (err) => {
   console.error(err.message);
 });
 
-app.get("/", (req, res) => {
+app.get("/", (_, res) => {
   res.send({ status: "up" });
 });
 
-io.on("connection", (socket) => {
-  console.log("New connection", socket.id);
-
-  socket.on("disconnect", (reason) => {
-    console.log("Socket disconnected", reason);
-    // ...
-  });
+// Event Handlers
+// TO-DO: move them to separate file
+function onConnection(socket: TypedSocket) {
+  socket.on("disconnect", () => {});
   socket.on("disconnecting", (reason) => {
     for (const room of socket.rooms) {
       if (room !== socket.id) {
@@ -71,17 +89,60 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.emit("basicEmit", 1, "2", Buffer.from([3]));
+  socket.on("userSentMessage", () => {});
+}
 
-  socket.on("userSentMessage", async (msg) => {
-    console.log("CHAT MSG EVENT", msg);
-    io.emit("newMessageAdded", msg);
-    await addMessageToCache(msg.message);
-    const messages = await getMessagesFromCache();
-    console.log("Messages from redis after added new:", messages);
+// IO middlewares
+io.use((socket, next) => {
+  // The client can send credentials with the auth option:: plain object
+  // const socket = io({
+  //   auth: {
+  //     token: "abc"
+  //   }
+  // });
+
+  // // or with a function
+  // const socket = io({
+  //   auth: (cb) => {
+  //     cb({
+  //       token: "abc"
+  //     });
+  //   }
+  // });
+  // example of checking token:
+  console.log("From IO middleware", socket);
+  const token = socket.handshake.auth.token;
+  console.log("From IO middleware - token received from handshake", token);
+  //check token and decide how to proceed if needed.
+  next();
+});
+
+async function joinSocketToRoomAndReturnAllGames(socket: TypedSocket) {
+  socket.join("game-lobby");
+  const allGames = await getAllGamesFromRedis();
+  if (!allGames) {
+    io.to(socket.id).emit("allActiveGames", []);
+    return;
+  }
+  io.to(socket.id).emit("allActiveGames", allGames);
+}
+
+io.on("connection", async (socket) => {
+  console.log("New connection", socket.id);
+  onConnection(socket);
+  joinSocketToRoomAndReturnAllGames(socket);
+
+  socket.on("createGame", async (game) => {
+    console.log("createGame event:", game);
+    const gameAddedInRedis = await addOrUpdateGameInRedis(game);
+    console.log("GAME ADDED AFRE EVENT:", gameAddedInRedis);
+    const gameInRedis = await getGameFromRedis(game.id);
+    console.log("new game created in Redis:", gameInRedis);
+
+    io.emit("gameCreated", game);
   });
 
-  // MIDDLEWARES:
+  // MIDDLEWARES for specific socket:
   socket.use(([event, ...args], next) => {
     // do something with the packet (logging, authorization, rate limiting...)
     // do not forget to call next() at the end

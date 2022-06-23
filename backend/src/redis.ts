@@ -1,112 +1,82 @@
 import * as redis from "redis";
 import { config } from "./config";
+import { Game, User } from "./game-types";
 
 const { host, port } = config.redis;
 export const redisClient = redis.createClient({
   url: `redis://${host}:${port}`,
 });
-// [END cloudrun_websockets_redis]
 
-// Set up to use promises and async/await for Redis methods
-// const redisGet = promisify(redisClient.get).bind(redisClient);
-// const redisExists = promisify(redisClient.exists).bind(redisClient);
+// Would probably use simple key/value (string|string) for storing a single game and use JSON.stringify or redisJSON for stringifying objects.
+// The alternative would be to use redis HASHES. Drawback of hashes is they have to be flat. we can test both and see what works better for use
+// https://alexandergugel.svbtle.com/storing-relational-data-in-redis
+// https://developer.redis.com/howtos/redisjson/using-nodejs
+// https://redis.io/docs/stack/json/
+// https://faun.pub/the-two-ways-of-storing-nested-dictionaries-in-redis-3404bedb198b
 
-// // Insert new messages into the Redis cache
-async function addMessageToCache(msg: string) {
-  // Check for current cache
-  // let room = await getRoomFromCache(roomName);
-  // if (room) {
-  //   // Update old room
-  //   room.messages.push(msg);
-  // } else {
-  //   // Create a new room
-  //   room = {
-  //     room: roomName,
-  //     messages: [msg],
-  //   };
-  // }
+// Would probably use ORDERED SET to keep the list of all the active games stored. Alternatively we can look into hashed or lists as well. We can even use JSON or HASH for this as well
+// Might be best just to have an HASH with JSON. We can sort fetched hash later with javascript.
 
-  if (!(await redisClient.exists("messages"))) {
-    console.log("Messages dont exist, will create them");
-    return redisClient.set("messages", JSON.stringify([msg]));
-  } else {
-    console.log("Messages exist, will GET them");
-    const messages = await redisClient.get("messages");
-    console.log("Messages:", messages, typeof messages);
-    if (!messages) {
-      return redisClient.set("messages", JSON.stringify([msg]));
-    }
+// redis.json needs to be installed on Redis server as redis-stack on the machine, so we 1st need to check if this will work in gcloud
+// untill then ill jsut use JSON from JS. redis.json is much better tho and allows for many different manipulations.
+// https://redis.io/docs/stack/get-started/install/mac-os/
 
-    const parsed =
-      typeof messages === "string" ? JSON.parse(messages) : messages;
-    parsed.push(msg);
-    return redisClient.set("messages", JSON.stringify(parsed));
+async function addOrUpdateGameInRedis(game: Game) {
+  // const allKeys = await redisClient.keys("*");
+
+  const { id } = game;
+  try {
+    const stringifiedGame = JSON.stringify(game);
+    const rH = await redisClient.hSet("games", id, stringifiedGame);
+    console.log("Added game to hash succes:", rH);
+    // const r = await redisClient.json.set(`game-${id}`, ".", game);
+    const r = await redisClient.set(`game-${id}`, stringifiedGame);
+    console.log("Added game succes:", r);
+    return r;
+  } catch (err) {
+    console.log("ERROR", err);
+    return null;
   }
-
-  // redisClient.set(roomName, JSON.stringify(room));
-  // Insert message to the database as well
-  // addMessageToDb(room);
 }
 
-async function getMessagesFromCache(): Promise<string[] | null> {
-  const messages = await redisClient.get("messages");
-  if (messages === null) {
-    return messages;
+async function addOrUpdateUserInRedis(user: User) {
+  const { id } = user;
+  try {
+    // const r = await redisClient.json.set(`user-${id}`, ".", user);
+    const r = await redisClient.set(`user-${id}`, JSON.stringify(user));
+    console.log("Added game succes:", r);
+    return r;
+  } catch (err) {
+    return null;
   }
-  return messages === "string" ? JSON.parse(messages) : messages;
 }
 
-// // Query Redis for messages for a specific room
-// // If not in Redis, query the database
-// async function getRoomFromCache(roomName: string) {
-//   if (!(await redisClient.exists(roomName))) {
-//     const room = getRoomFromDatabase(roomName);
-//     if (room) {
-//       await redisClient.set(roomName, JSON.stringify(room));
-//     }
-//   }
-//   const finalRoom = await redisClient.get(roomName);
-//   return typeof finalRoom === "string" ? JSON.parse(finalRoom) : finalRoom;
-// }
+async function getAllGamesFromRedis() {
+  try {
+    const r = await redisClient.hGetAll("games");
+    console.log("All games from redis:", r);
+    return r;
+  } catch (err) {
+    console.log(err);
+    return null;
+  }
+}
 
-// In-memory database example -
-// Production applications should use a persistent database such as Firestore
-const messageDb = [
-  {
-    room: "my-room",
-    messages: [
-      { user: "Chris", text: "Hi!" },
-      { user: "Chris", text: "How are you!?" },
-      { user: "Megan", text: "Doing well!" },
-      { user: "Chris", text: "That's great" },
-    ],
-  },
-  {
-    room: "new-room",
-    messages: [
-      { user: "Chris", text: "The project is due tomorrow" },
-      { user: "Chris", text: "I am wrapping up the final pieces" },
-      { user: "Chris", text: "Are you ready for the presentation" },
-      { user: "Megan", text: "Of course!" },
-    ],
-  },
-];
+async function getGameFromRedis(id: string) {
+  try {
+    // const game = await redisClient.json.get(`game-${id}`);
+    const game = await redisClient.get(`game-${id}`);
+    console.log("Game from redis:", game);
+    if (game === null) return game;
+    return JSON.parse(game) as Game;
+  } catch (err) {
+    return null;
+  }
+}
 
-// // Insert messages into the example database for long term storage
-// async function addMessageToDb(data) {
-//   const room = messageDb.find((messages) => messages.room === data.room);
-//   if (room) {
-//     // Update room in database
-//     Object.assign(room, data);
-//   } else {
-//     // Create new room in database
-//     messageDb.push(data);
-//   }
-// }
-
-// // Query the example database for messages for a specific room
-// function getRoomFromDatabase(roomName) {
-//   return messageDb.find((messages) => messages.room === roomName);
-// }
-
-export { addMessageToCache, getMessagesFromCache };
+export {
+  addOrUpdateGameInRedis,
+  getGameFromRedis,
+  getAllGamesFromRedis,
+  addOrUpdateUserInRedis,
+};
