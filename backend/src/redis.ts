@@ -1,6 +1,7 @@
 import * as redis from "redis";
 import { config } from "./config";
-import { Game, User } from "./game-types";
+import { Game } from "./types/game-types";
+import { SocketUser } from "./types/socketio-types";
 
 const { host, port } = config.redis;
 export const redisClient = redis.createClient({
@@ -39,18 +40,6 @@ async function addOrUpdateGameInRedis(game: Game) {
   }
 }
 
-async function addOrUpdateUserInRedis(user: User) {
-  const { id } = user;
-  try {
-    // const r = await redisClient.json.set(`user-${id}`, ".", user);
-    const r = await redisClient.set(`user-${id}`, JSON.stringify(user));
-    console.log("Added game succes:", r);
-    return r;
-  } catch (err) {
-    return null;
-  }
-}
-
 async function getAllGamesFromRedis() {
   try {
     const len = await redisClient.hLen("games");
@@ -67,7 +56,7 @@ async function getAllGamesFromRedis() {
     });
 
     console.log("All games from redis:", games);
-    return games;
+    return games as Game[];
   } catch (err) {
     console.log(err);
     return [];
@@ -86,9 +75,77 @@ async function getGameFromRedis(id: string) {
   }
 }
 
+async function deleteGameInRedis(id: Game["id"]) {
+  try {
+    const r = await Promise.allSettled([
+      redisClient.del(`game-${id}`),
+      redisClient.hDel(`games`, id),
+    ]);
+    return r;
+  } catch (err) {
+    console.log("err in deleteGameInRedis", err);
+    return null;
+  }
+}
+
+async function addOrUpdateUserInRedis({
+  socketId,
+  user,
+  rooms = [],
+}: SocketUser) {
+  if (!socketId) return null;
+  try {
+    const toStore = { ...user, rooms };
+    // const r = await redisClient.json.set(`user-${id}`, ".", user);
+    const r = await redisClient.set(
+      `user-${socketId}`,
+      JSON.stringify(toStore)
+    );
+    console.log("Added user to redis:", r);
+    return r;
+  } catch (err) {
+    console.log("err in addOrUpdateUserInRedis", err);
+    return null;
+  }
+}
+
+async function getUserFromRedis(socketId: string) {
+  if (!socketId) return null;
+  try {
+    const r = await redisClient.get(`user-${socketId}`);
+    console.log("User tfrom redis:", r);
+    if (r !== null) {
+      return JSON.parse(r) as SocketUser;
+    }
+    return r;
+  } catch (err) {
+    console.log("err in getUserFromRedis", err);
+    return null;
+  }
+}
+
+async function deleteUserInRedis(socketId: string) {
+  try {
+    const r = await Promise.allSettled([
+      redisClient.get(`user-${socketId}`),
+      redisClient.del(`user-${socketId}`),
+    ]);
+    if (r[0].status === "fulfilled" && r[0].value) {
+      return JSON.parse(r[0].value) as SocketUser;
+    }
+    return null;
+  } catch (err) {
+    console.log("err in deleteUserInRedis", err);
+    return null;
+  }
+}
+
 export {
   addOrUpdateGameInRedis,
   getGameFromRedis,
   getAllGamesFromRedis,
   addOrUpdateUserInRedis,
+  deleteGameInRedis,
+  deleteUserInRedis,
+  getUserFromRedis,
 };

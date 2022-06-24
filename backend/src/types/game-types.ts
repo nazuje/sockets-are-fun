@@ -1,7 +1,4 @@
-export type User = {
-  id: string;
-  tokenId: string;
-};
+import { User } from "./socketio-types";
 
 export type Round = {
   id: string;
@@ -10,9 +7,11 @@ export type Round = {
 export type GameStatus = "CREATED" | "IN_PROGRESS" | "COMPLETED";
 export type GameType = "BOX";
 
+export type Player = { whatever: any } & User;
+
 export type Game = {
   id: string;
-  players?: User[];
+  players?: Player[];
   rounds?: Round[];
   activeRound?: Round;
   boxes?: string[];

@@ -5,8 +5,11 @@ import { Server, Socket } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
 import {
   addOrUpdateGameInRedis,
+  addOrUpdateUserInRedis,
+  deleteUserInRedis,
   getAllGamesFromRedis,
   getGameFromRedis,
+  getUserFromRedis,
   redisClient,
 } from "./redis";
 import { config } from "./config";
@@ -15,7 +18,9 @@ import {
   InterServerEvents,
   ServerToClientEvents,
   SocketData,
-} from "./socketio-types";
+  Room,
+  SocketUser,
+} from "./types/socketio-types";
 
 // Code	Message
 // 0	"Transport unknown"
@@ -80,13 +85,57 @@ app.get("/", (_, res) => {
 // Event Handlers
 // TO-DO: move them to separate file
 function onConnection(socket: TypedSocket) {
-  socket.on("disconnect", () => {});
+  socket.on("disconnect", async () => {
+    // TO-DO:  Handle disconnect event and add the necessery missing logic
+
+    const user = await deleteUserInRedis(socket.id);
+    if (user && user.rooms?.length) {
+      user.rooms.forEach((r) => {
+        // TO-DO: do whatever we want to do for the specific rooms if/when user leaves
+        if (r === "game-battles") {
+          io.in(r).emit("userLeft", {
+            user,
+          });
+        }
+      });
+    }
+  });
   socket.on("disconnecting", (reason) => {
     for (const room of socket.rooms) {
       if (room !== socket.id) {
         // socket.to(room).emit("user has left", socket.id);
       }
     }
+  });
+
+  socket.on("createGame", async (game) => {
+    console.log("createGame event:", game);
+    await addOrUpdateGameInRedis(game);
+    const gameInRedis = await getGameFromRedis(game.id);
+    console.log("new game created in Redis:", gameInRedis);
+    io.to("game-battles").emit("gameCreated", game);
+  });
+
+  // We will be using rooms as a way to subscribe to specific events
+  // By joining a room, you will get the events only for that room and no others
+
+  socket.on("joinRoom", async (room, callback) => {
+    //TO-DO: decide if we want to do any additional handling here
+    console.log("joinRoom event recevived", room);
+    if (room === "game-battles") {
+      try {
+        const allGames = await getAllGamesFromRedis();
+        await socket.join(room);
+        callback && callback(allGames);
+      } catch (err) {
+        callback && callback(null);
+      }
+    }
+  });
+
+  socket.on("updateSocketId", async (data) => {});
+  socket.on("leaveRoom", async (room) => {
+    //TO-DO: decide if we want to do any handling here
   });
 
   socket.on("userSentMessage", () => {});
@@ -132,16 +181,6 @@ io.on("connection", async (socket) => {
   onConnection(socket);
   joinSocketToRoomAndReturnAllGames(socket);
 
-  socket.on("createGame", async (game) => {
-    console.log("createGame event:", game);
-    const gameAddedInRedis = await addOrUpdateGameInRedis(game);
-    console.log("GAME ADDED AFRE EVENT:", gameAddedInRedis);
-    const gameInRedis = await getGameFromRedis(game.id);
-    console.log("new game created in Redis:", gameInRedis);
-
-    io.emit("gameCreated", game);
-  });
-
   // MIDDLEWARES for specific socket:
   socket.use(([event, ...args], next) => {
     // do something with the packet (logging, authorization, rate limiting...)
@@ -182,4 +221,11 @@ io.engine.on("connection_error", (err: any) => {
 
 httpServer.listen(port, () => {
   console.log(`Listening on ${port}`);
+});
+
+// Clean up resources on shutdown
+process.on("SIGTERM", () => {
+  console.log("received SIGTERM");
+  redisClient.quit();
+  process.exit(0);
 });
